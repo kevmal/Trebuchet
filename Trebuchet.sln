@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29519.181
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Trebuchet", "Trebuchet\Trebuchet.fsproj", "{2C37498D-5951-4E7A-B7E0-80CDB9B23DBD}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Trebuchet.Tests", "Trebuchet.Tests\Trebuchet.Tests.fsproj", "{6766742D-A9C5-46CC-8E78-398098F5D252}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2C37498D-5951-4E7A-B7E0-80CDB9B23DBD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2C37498D-5951-4E7A-B7E0-80CDB9B23DBD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2C37498D-5951-4E7A-B7E0-80CDB9B23DBD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2C37498D-5951-4E7A-B7E0-80CDB9B23DBD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6766742D-A9C5-46CC-8E78-398098F5D252}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6766742D-A9C5-46CC-8E78-398098F5D252}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6766742D-A9C5-46CC-8E78-398098F5D252}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6766742D-A9C5-46CC-8E78-398098F5D252}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D7CC8AFD-341A-4F8C-A273-2E86063FC91F}
+	EndGlobalSection
+EndGlobal
