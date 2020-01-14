@@ -45,7 +45,7 @@ let ``sorting random``() =
     let r2 = Random(2349)
     let ra = ResizeArray()
     ra.Add 322.0
-    for i = 1 to 20000 do 
+    for i = 1 to 5000 do 
         let v = r2.NextDouble()
         ra.Add v
         SkipList.addWithPromote r 0.5 10 v e  |> ignore

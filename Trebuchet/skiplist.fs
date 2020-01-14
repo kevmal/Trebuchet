@@ -263,7 +263,7 @@ module SkipList =
                         laste <- u
                         u <- u.Up
         else
-            while not(isNull e) do
+            while not(isNull e) && r.NextDouble() < p do
                 lvl <- lvl + 1
                 if not (isNull e.Up) then 
                     if e.Up.Value = e.Value then 
@@ -316,7 +316,7 @@ module SkipList =
                         e <- check parent
                     else    
                         e <- null
-                elif lvl < maxlevel && r.NextDouble() < p then 
+                elif lvl < maxlevel then 
                     //new level
                     // Create Up on far left
                     let l = left e
