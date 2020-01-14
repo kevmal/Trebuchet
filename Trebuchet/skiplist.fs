@@ -78,9 +78,9 @@ module SkipList =
         member x.Deleted = deleted
 #endif
         static member Create<'a>(value : 'a) = 
-            //let scc,v = pool.TryDequeue()
-            //let v = if scc then v else Entry()
-            let v = Entry()
+            let scc,v = pool.TryDequeue()
+            let v = if scc then v else Entry()
+            //let v = Entry()
             v.Value <- value 
             v
 
