@@ -2,40 +2,23 @@
 
 open Xunit
 open Trebuchet.DataStructures
+open System
 
 
 
 [<Fact>]
 let simple1() = 
-    let l = SkipList()
+    let e = SkipList.Entry.Create 299
+    let r = Random(232)
     {0.. 10000}
-    |> Seq.iter l.Add
-    Assert.Equal(10001, l.Count)
-    let readBack = l |> Seq.toArray
-    Assert.Equal(0, readBack.[0])
-    Assert.Equal(2932, readBack.[2932])
-    Assert.Equal(5653, readBack.[5653])
-    Assert.Equal(5654, readBack.[5654])
-    Assert.Equal(9999, readBack.[9999])
-    Assert.Equal(10000, readBack.[10000])
-
-[<Fact>]
-let simple2() = 
-    let l = SkipList()
-    [4;4;4;4;4] |> Seq.iter l.Add
-    Assert.Equal(1, l.Count)
-    Assert.Equal(l.[0], 4)
-    Assert.Equal(l.Max, 4)
-    Assert.Equal(l.Min, 4)
-
-
-[<Fact>]
-let simple3() = 
-    let l = SkipList()
-    {0 .. 10} |> Seq.rev |> Seq.iter l.Add
-    Assert.Equal(11, l.Count)
-    Assert.Equal(l.[0], 0)
-    Assert.Equal(l.[9], 9)
-    Assert.Equal(l.[10], 10)
-
-
+    |> Seq.iter (fun v -> SkipList.addWithPromote r 0.5 10 v e |> ignore)
+    Assert.Equal(1, SkipList.valueCount 23 e)
+    Assert.Equal(2, SkipList.valueCount 299 e)
+    Assert.Equal(10002, SkipList.totalCount e)
+    let c = SkipList.remove 299 e
+    Assert.Equal(1, c)
+    Assert.Equal(10001, SkipList.totalCount e)
+    Assert.Equal(1, SkipList.valueCount 299 e)
+    Assert.Equal(0, SkipList.remove 300 e)
+    Assert.Equal(0, SkipList.valueCount 300 e)
+    Assert.Equal(10000, SkipList.totalCount e)

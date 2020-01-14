@@ -14,391 +14,368 @@ module SkipList =
 
 
 
-    [<Struct>]
-    type AddResult<'a when 'a : comparison> = 
-        | Added
-        | Node of Entry<'a>
-        | NoOp
-
-    and [<AbstractClass; AllowNullLiteral>] Entry<'a when 'a : comparison>() = 
+    type [<AllowNullLiteral>] Entry<'a when 'a : comparison>() = 
+        static let pool = ConcurrentQueue()
+        static let del (o : Entry<'a>) = 
+            if pool.Count < Entry<'a>.PoolSize then 
+                o.Reset()
+                pool.Enqueue o
+        static member val PoolSize = 16 with get,set
         member val Left : Entry<'a> = null with get,set
         member val Right : Entry<'a> = null with get,set
         member val Down : Entry<'a> = null with get,set
         member val Up : Entry<'a> = null with get,set
         member val Width = 1 with get,set
-        abstract member UpdateWidth : unit -> unit
-        abstract member Value : 'a
-        abstract member Max : 'a
-        abstract member Min : 'a
-        abstract member Count : int
-        abstract member Add : (unit -> bool)*'a -> AddResult<'a>
-        abstract member Remove : 'a -> bool
-        abstract member Contains : 'a -> bool
-
-    type ValueEntry<'a when 'a : comparison>() = 
-        inherit Entry<'a>()
-        static let pool = ConcurrentQueue()
-        static let del (o : ValueEntry<'a>) = 
-            if pool.Count < ValueEntry<'a>.PoolSize then 
-                o.Reset()
-                pool.Enqueue o
-        let mutable count = 1
+        member val Value : 'a = Unchecked.defaultof<_> with get,set
+        member val Count = 1 with get,set
+        override x.ToString() : string = 
+            let left = if isNull (box x.Left) then "_" else x.Left.Value.ToString()
+            let right =  if isNull (box x.Right) then "_" else x.Right.Value.ToString()
+            let up =  if isNull (box x.Up) then "_" else x.Up.Value.ToString()
+            sprintf "%s -- %s -- %s (up %A) (down %A)" left (x.Value.ToString()) right up (isNull (box x.Down))
         member x.Reset() = 
-            count <- 1
-            x.Width <- 1
             x.Left <- null
             x.Right <- null
             x.Down <- null
             x.Up <- null
-        static member Create<'a>() : ValueEntry<'a> = 
+            x.Width <- 1
+            x.Count <- 1
+            x.Value <- Unchecked.defaultof<_>
+        member x.Delete() = del x
+        static member Create<'a>(value : 'a) = 
             let scc,v = pool.TryDequeue()
-            if scc then v else ValueEntry()
-        static member val PoolSize = 16
-        member val Valuev = Unchecked.defaultof<_> with get,set
-        override x.UpdateWidth() = ()
-        override x.Value = x.Valuev
-        override x.Max = x.Valuev
-        override x.Min = x.Valuev
-        override x.Count = count
-        override x.Add(r, value : 'a) : AddResult<'a> =
-            if value > x.Value then 
-                match x.Right with 
-                | null -> 
-                    let ve = ValueEntry.Create()
-                    ve.Valuev <- value 
-                    ve.Left <- x
-                    x.Right <- ve
-                    Node (ve :> Entry<'a>)
-                | q -> 
-                    if q.Value > value then 
-                        let ve = ValueEntry.Create()
-                        ve.Valuev <- value
-                        ve.Left <- x
-                        ve.Right <- q
-                        x.Right <- ve
-                        q.Left <- ve
-                        Node (ve :> Entry<'a>)
-                    else 
-                        q.Add(r,value)
-            elif value < x.Value then 
-                match x.Left with 
-                | null -> 
-                    let ve = ValueEntry.Create()
-                    ve.Valuev <- value
-                    ve.Right <- x
-                    x.Left <- ve
-                    Node (ve :> Entry<'a>)
-                | q -> 
-                    if q.Value < value then
-                        let ve = ValueEntry.Create() 
-                        ve.Valuev <- value
-                        ve.Right <- x
-                        ve.Left <- q
-                        x.Left <- ve
-                        q.Right <- ve
-                        Node (ve :> Entry<'a>)
-                    else 
-                        q.Add(r,value)
+            let v = if scc then v else Entry()
+            v.Value <- value 
+            v
+
+    let up x =
+        let mutable up = x :> _ Entry
+        while not(isNull up.Up) do up <- up.Up
+        up
+
+    let down x =
+        let mutable down = x :> _ Entry
+        while not(isNull down.Down) do down <- down.Down
+        down
+  
+    let left x =
+        let mutable left = x :> _ Entry
+        while not(isNull left.Left) do left <- left.Left
+        left
+
+    let right x =
+        let mutable right = x :> _ Entry
+        while not(isNull right.Right) do right <- right.Right
+        right
+
+    let findLesserOrEq (v : 'a) (n : Entry<'a>) =
+        let mutable e = n
+        while not(isNull(e.Up)) do 
+            e <- e.Up
+        while not(isNull(e.Left)) && e.Left.Value >= v do e <- e.Left
+        while not(isNull(e.Right)) && e.Right.Value < v do e <- e.Right
+        while not(isNull(e.Down)) do
+            e <- e.Down
+            while not(isNull(e.Right)) && e.Right.Value <= v do e <- e.Right
+        e
+
+    let inline onDirectRight (interval : Entry<'a>) (n : Entry<'a>) = 
+        interval.Value <= n.Value && (isNull interval.Right || interval.Right.Value > n.Value)
+
+    let findLesserOrEqOnLvl (v : 'a) (n : Entry<'a>) =
+        let mutable lvl = 0
+        let mutable e = n
+        while not(isNull(e.Up)) && not(onDirectRight e n) do 
+            e <- e.Up
+            lvl <- lvl + 1
+        while not(isNull(e.Left)) && e.Left.Value >= v do e <- e.Left
+        while not(isNull(e.Right)) && e.Right.Value < v do e <- e.Right
+        while lvl > 0 do
+            e <- e.Down
+            lvl <- lvl - 1
+            while not(isNull(e.Right)) && e.Right.Value <= v do e <- e.Right
+        e
+
+
+    let realignParent (n : Entry<'a>) = 
+        let check (e : Entry<'a>) = 
+            assert (isNull e.Left || e.Left.Value < e.Value)
+            assert (isNull e.Right || e.Right.Value > e.Value)
+            assert (isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
+            e
+        if isNull n.Up then 
+            n
+        else    
+            let newp = findLesserOrEqOnLvl n.Value n.Up
+            n.Up <- newp
+            check n.Up |> ignore
+            check n
+
+    let calcCount (n : Entry<'a>) =
+        let mutable e = if isNull n.Down then n else n.Down
+        let mutable c = 0
+        if isNull n.Right then 
+            while not(isNull e) do
+                c <- e.Count + c
+                e <- e.Right
+        else
+            let rv = n.Right.Value
+            while e.Value <> rv do
+                c <- e.Count + c
+                e <- e.Right
+        c
+
+    let recalcUp (e:Entry<'a>) =
+        let mutable p = e
+        while not(isNull p.Up) do
+            realignParent p |> ignore
+            p.Up.Count <- calcCount p.Up
+            p <- p.Up
+
+    let checkCount (n : Entry<'a>) =
+        let count = 
+            if isNull n.Right then 
+                let mutable e = down n
+                let mutable c = 0
+                while not(isNull e) do
+                    c <- e.Count + c
+                    e <- e.Right
+                c
             else
-                count <- count + 1
-                NoOp
-        override x.Contains(value) = 
-            if value = x.Value then 
-                true
-            elif value > x.Value then 
-                match x.Right with 
-                | null -> false
-                | x -> x.Contains(value)
-            else
-                match x.Left with 
-                | null -> false
-                | x -> x.Contains(value)
-        override x.Remove(value) = 
-            if value = x.Value then 
-                if count = 1 then 
-                    count <- 0
-                    match x.Left,x.Right with 
-                    | null,null -> ()
-                    | l, null -> l.Right <- null
-                    | null,r -> r.Left <- null
-                    | l,r -> l.Right <- r; r.Left <- l
-                    del x
-                    true
+                let mutable e = down n
+                let mutable c = 0
+                while e.Value <> n.Right.Value do
+                    c <- e.Count + c
+                    e <- e.Right
+                c
+        assert(count = n.Count)            
+
+    let add (v : 'a) (n : Entry<'a>) = 
+        let check (e : Entry<'a>) = 
+            assert (isNull e.Left || e.Left.Value < e.Value)
+            assert (isNull e.Right || e.Right.Value > e.Value)
+            assert (isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
+            e
+        let rec loop (n : Entry<'a>) lvl = 
+            if v > n.Value then 
+                if isNull n.Right then 
+                    if isNull n.Down then
+                        let entry = Entry.Create(v)
+                        entry.Left <- n
+                        entry.Up <- n.Up
+                        n.Right <- entry
+                        check n |> ignore
+                        check entry
+                    else    
+                        loop (n.Down) (lvl + 1)
+                elif n.Right.Value > v then 
+                    if isNull n.Down then 
+                        let entry = Entry.Create(v)
+                        entry.Up <- n.Up
+                        let r = n.Right
+                        n.Right <- entry
+                        r.Left <- entry
+                        entry.Left <- n
+                        entry.Right <- r
+                        check r |> ignore
+                        check n |> ignore
+                        check entry
+                    else    
+                        loop (n.Down) (lvl + 1)
                 else 
-                    count <- count - 1 
-                    false
-            elif value > x.Value then 
-                match x.Right with 
-                | null -> false
-                | x -> x.Remove(value)
+                    loop n.Right lvl
+            elif v = n.Value then 
+                let n = down n
+                n.Count <- n.Count + 1
+                n
+                //let mutable down = n
+                //down.Count <- down.Count + 1
+                //while not(isNull down.Down) do 
+                //    down <- down.Down
+                //    down.Count <- down.Count + 1
+                //down
             else
-                match x.Left with 
-                | null -> false
-                | x -> x.Remove(value)
-     
-    [<AbstractClass>]
-    type Level<'a when 'a : comparison>() = 
-        inherit Entry<'a>()
-        override x.Value = x.Down.Value
-        override x.Count = x.Down.Count
-
-    type SkipLevel<'a when 'a : comparison>() = 
-        inherit Level<'a>()
-        static let pool = ConcurrentQueue()
-        static let del (o : SkipLevel<'a>) = 
-            if pool.Count < SkipLevel<'a>.PoolSize then 
-                o.Reset()
-                pool.Enqueue o
-        let mutable count = 1
-        member x.Reset() = 
-            count <- 1 
-            x.Width <- 1
-            x.Left <- null
-            x.Right <- null
-            x.Up <- null
-            x.Down <- null
-        static member Create<'a>() : SkipLevel<'a> = 
-            let scc,v = pool.TryDequeue()
-            if scc then v else SkipLevel()
-        static member val PoolSize = 16
-        override x.UpdateWidth() = 
-            match x.Right with 
-            | null -> 
-                let mutable d = x.Down
-                let mutable w = 0
-                while not(isNull d) do 
-                    w <- d.Width + w
-                    d <- d.Right
-                x.Width <- w
-            | r -> 
-                let v = r.Value
-                let mutable d = x.Down
-                let mutable w = 0
-                while d.Value <> v do 
-                    w <- d.Width + w
-                    d <- d.Right
-                x.Width <- w
-        override x.Max = 
-            match x.Right with 
-            | null -> 
-                let mutable r = x :> Entry<_>
-                while not(isNull r.Down) do 
-                    r <- r.Down
-                    while not(isNull r.Right) do r <- r.Right
-                match r with
-                | null -> x.Value 
-                | r -> r.Value
-            | r -> r.Down.Left.Value
-        override x.Min = x.Value
-        override x.Add(r, value : 'a) =
-            if isNull x.Left || value >= x.Value then 
-                if isNull x.Right || value < x.Right.Value then 
-                    match x.Down.Add(r,value) with 
-                    | Node n -> 
-                        x.Width <- x.Width + 1
-                        if r() then 
-                            if value > x.Value then 
-                                let l = SkipLevel.Create()
-                                l.Left <- x
-                                l.Right <- x.Right
-                                l.Down <- n
-                                n.Up <- l
-                                x.Right <- l
-                                l.UpdateWidth()
-                                x.UpdateWidth()
-                                Node (l :> Entry<'a>)
-                            else 
-                                let l = SkipLevel.Create()
-                                l.Left <- x.Left
-                                l.Right <- x
-                                l.Down <- n
-                                n.Up <- l
-                                x.Left <- l
-                                l.UpdateWidth()
-                                x.UpdateWidth()
-                                Node (l :> Entry<'a>)
-                        else Added
-                    | Added -> 
-                        x.Width <- x.Width + 1
-                        Added
-                    | NoOp -> NoOp
-                else x.Right.Add(r,value)
-            else x.Left.Add(r,value)
-        override x.Contains(value : 'a) = 
-            if x.Value = value then 
-                true
-            elif isNull x.Left || value >= x.Value then 
-                if isNull x.Right || value < x.Right.Value then 
-                    x.Down.Contains(value)
-                else x.Right.Contains(value)
-            else x.Left.Contains(value)
-        override x.Remove(value : 'a) = 
-            if isNull x.Left || value >= x.Value then 
-                if isNull x.Right || value < x.Right.Value then 
-                    if x.Down.Remove(value) && value = x.Value then 
-                        match x.Left,x.Right with 
-                        | null,null -> ()
-                        | l, null -> l.Right <- null
-                        | null,r -> r.Left <- null
-                        | l,r -> 
-                            l.Right <- r
-                            r.Left <- l
-                            l.UpdateWidth()
-                            r.UpdateWidth()
-                        del x
-                        true
+                if isNull n.Left then 
+                    if isNull n.Down then 
+                        let entry = Entry.Create(v)
+                        entry.Right <- n
+                        entry.Up <- n.Up
+                        n.Left <- entry
+                        check n |> ignore
+                        check entry
+                    else    
+                        loop (n.Down) (lvl + 1)
+                elif n.Left.Value < v then 
+                    if isNull n.Down then 
+                        let entry = Entry.Create(v)
+                        entry.Up <- n.Up
+                        let l = n.Left
+                        n.Left <- entry
+                        l.Right <- entry
+                        entry.Right <- n
+                        entry.Left <- l
+                        check l |> ignore
+                        check n |> ignore
+                        check entry
                     else
-                        false
-                else x.Right.Remove(value)
-            else x.Left.Remove(value)
-            
-    [<AutoOpen>]
-    module internal LeftRight = 
-        let left x =
-            let mutable left = x :> _ Entry
-            while not(isNull left.Left) do left <- left.Left
-            left
-        let right x =
-            let mutable right = x :> _ Entry
-            while not(isNull right.Right) do right <- right.Right
-            right
+                        loop (n.Left.Down) (lvl + 1)
+                else 
+                    loop n.Left lvl
+        let e = loop n 0 |> check 
+        recalcUp e
+        e
 
-    type TopLevel<'a when 'a : comparison>(p,maxLevel,seed) = 
-        inherit Entry<'a>()
-        let levels = ResizeArray()
-        let rng = Random(seed)
-        override x.UpdateWidth() = ()
-        override x.Add(r, value : 'a) = 
-            if levels.Count = 0 then 
-                x.Width <- 1
-                let e = ValueEntry.Create() 
-                e.Valuev <- value
-                levels.Add(e :> Entry<'a>)
+    let addWithPromote (r : Random) (p : double) maxlevel (v : 'a) (n : Entry<'a>) = 
+        let entry = add v n
+        let mutable e = entry
+        let mutable lvl = 0
+        let check (e : Entry<'a>) = 
+            assert (isNull e || isNull e.Left || e.Left.Value < e.Value)
+            assert (isNull e || isNull e.Right || e.Right.Value > e.Value)
+            assert (isNull e || isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
+            e
+        while not(isNull e) do
+            lvl <- lvl + 1
+            if not (isNull e.Up) then 
+                if e.Up.Value = e.Value then 
+                    e <- e.Up
+                elif r.NextDouble() < p then 
+                    // promote
+                    let parent = Entry.Create(v)
+                    parent.Up <- e.Up.Up
+                    parent.Down <- e
+                    let mutable u = findLesserOrEqOnLvl e.Value e.Up
+                    checkCount u
+                    if u.Value < e.Value then 
+                        parent.Left <- u
+                        parent.Right <- u.Right
+                        u.Right <- parent
+                        if not(isNull parent.Right) then 
+                            parent.Right.Left <- parent
+                        e.Up <- parent
+                        parent.Count <- calcCount parent
+                        u.Count <- u.Count - parent.Count
+                        checkCount parent
+                        checkCount u
+                        check parent |> ignore
+                    else    
+                        parent.Right <- u
+                        parent.Left <- u.Left
+                        u.Left <- parent
+                        if not(isNull parent.Left) then 
+                            parent.Left.Right <- parent
+                        e.Up <- parent
+                        parent.Count <- calcCount parent
+                        u.Left.Count <- u.Left.Count - parent.Count
+                        checkCount parent
+                        checkCount u
+                        check parent |> ignore
+                    e <- check parent
+                else    
+                    e <- null
+            elif lvl < maxlevel && r.NextDouble() < p then 
+                //new level
+                let parent = Entry.Create(v)
+                parent.Count <- e.Count
+                parent.Up <- null
+                e.Up <- parent
+                parent.Down <- e
+                let mutable nn = e.Left
+                while not(isNull nn) do 
+                    assert(isNull nn.Up)
+                    nn.Up <- parent
+                    nn <- nn.Left
+                nn <- check e.Right
+                while not(isNull nn) do 
+                    assert(isNull nn.Up)
+                    nn.Up <- parent
+                    nn <- check nn.Right
+                parent.Count <- calcCount parent
+                checkCount parent 
+            else    
+                e <- null
+        check entry
+    
+    
+    let remove (v : 'a) (n : Entry<'a>) = 
+        let mutable e = up n
+        let mutable c = -1
+        while not(isNull e.Left) && e.Left.Value >= v do 
+            e <- e.Left
+        while not(isNull e) do
+            if e.Value = v then 
+                while not(isNull e.Up) && e.Up.Value = e.Value do e <- e.Up
+                if e.Count = 1 then 
+                    let mutable left = e
+                    c <- 0
+                    while not(isNull e) do
+                        e.Left.Right <- e.Right
+                        e.Right.Left <- e.Left
+                        left <- e.Left
+                        let down = e.Down
+                        e.Delete()
+                        e <- down
+                    if not (isNull left) then recalcUp left
+                else    
+                    let mutable last = e
+                    while not(isNull e) do
+                        e.Count <- e.Count - 1
+                        c <- e.Count
+                        last <- e
+                        e <- e.Down
+                    recalcUp last
+            elif e.Value < v then 
+                if isNull e.Right || e.Right.Value > v then 
+                    e <- e.Down
+                else    
+                    e <- e.Right
             else
-                let lastl = levels.[levels.Count - 1]
-                match lastl.Add(r,value) with 
-                | Node(n) -> 
-                    x.Width <- x.Width + 1
-                    if levels.Count < maxLevel && r() then 
-                        let i2 = SkipLevel.Create() 
-                        i2.Down <- n
-                        n.Up <- i2
-                        levels.Add i2
-                | Added -> 
-                    x.Width <- x.Width + 1
-                | NoOp -> ()
-            NoOp
-        member x.Add(value) = x.Add((fun () -> rng.NextDouble() < p), value) |> ignore
-        override x.Value = levels.[levels.Count - 1].Value
-        override x.Count = (left levels.[levels.Count - 1]).Count
-        override x.Max = (right levels.[levels.Count - 1]).Max
-        override x.Min = 
-            let mutable r = left levels.[levels.Count - 1]
-            while not(isNull r.Down) do 
-                r <- r.Down
-                while not(isNull r.Left) do r <- r.Left
-            match r with
-            | null -> x.Value 
-            | r -> r.Value
-        member x.Levels = levels      
-        member x.Clear() = levels.Clear()
-        override x.Contains(value) = 
-            if levels.Count = 0 then 
-                false
+                if isNull e.Left || e.Left.Value < v then 
+                    e <- e.Down
+                else    
+                    e <- e.Left
+        c                        
+                    
+    let valueCount (v : 'a) (n : Entry<'a>) = 
+        let mutable e = up n
+        let mutable c = 0
+        while not(isNull e.Left) && e.Left.Value >= v do 
+            e <- e.Left
+        while not(isNull e) do
+            if e.Value = v then 
+                c <- (down e).Count
+                e <- null
+            elif e.Value < v then 
+                if isNull e.Right || e.Right.Value > v then 
+                    e <- e.Down
+                else    
+                    e <- e.Right
             else
-                let lastl = levels.[levels.Count - 1]
-                lastl.Contains(value)
-        override x.Remove(value) = 
-            if levels.Count = 0 then 
-                false
-            else
-                let lastl = levels.[levels.Count - 1]
-                lastl.Remove(value)
-        member x.Item 
-            with get(i : int) = 
-                let mutable n = levels.[0] |> left
-                if i = 0 then n.Value else
-                let mutable cw = 0
-                let mutable lvl = 0
-                while cw < i do 
-                    match n.Up, n.Right with 
-                    | null, null -> 
-                        n <- n.Down
-                    | u, _ when not(isNull u) && u.Width + cw <= i -> 
-                        lvl <- lvl + 1
-                        n <- u
-                        while not(isNull n.Up) && n.Up.Width + cw <= i do 
-                            lvl <- lvl + 1
-                            n <- n.Up
-                    | _, null -> cw <- i + 1
-                    | _, r -> 
-                        while cw + n.Width > i do
-                            lvl <- lvl - 1
-                            n <- n.Down
-                        while isNull(n.Right) do 
-                            lvl <- lvl - 1
-                            n <- n.Down
-                        cw <- n.Width + cw
-                        n <- n.Right
-                n.Value
+                if isNull e.Left || e.Left.Value < v then 
+                    e <- e.Down
+                else    
+                    e <- e.Left
+        c                     
 
-open SkipList
-
-type SkipList<'a when 'a : comparison>(?p,?maxLevel,?seed) = 
-    let p = defaultArg p 0.5
-    let maxLevel = defaultArg maxLevel 100
-    let seed = defaultArg seed 0
-    let tl = TopLevel<'a>(p,maxLevel,seed)
-    member x.Probability = p
-    member x.MaxLevel = maxLevel
-    member x.Seed = seed
-    member x.Max = tl.Max
-    member x.Min = tl.Min
-    member x.StringRepr() = 
-        tl.Levels
-        |> Seq.map 
-            (fun x ->
-                let sb = System.Text.StringBuilder()
-                let x = left x
-                ()
-            )
-        |> Seq.iter ignore
-    member this.Add(item: 'a): unit = tl.Add(item)
-    member this.Clear(): unit = tl.Clear()
-    member this.Contains(item: 'a): bool = tl.Contains(item)
-    member this.CopyTo(array: 'a [], arrayIndex: int): unit = 
-        for i = 0 to this.Count - 1 do
-            array.[i + arrayIndex] <- this.[i]
-    member this.Count: int = tl.Width
-    member this.IndexOf(item: 'a): int = 
-        raise (System.NotImplementedException())
-    member this.Insert(index: int, item: 'a): unit = raise (System.InvalidOperationException())
-    member this.IsReadOnly: bool = false
-    member this.Item
-        with get (index: int): 'a = tl.[index]
-        and set (index: int) (v: 'a): unit = raise (System.InvalidOperationException())
-    member this.Remove(item: 'a): bool = tl.Remove(item)
-    member this.RemoveAt(index: int): unit = 
-        raise (System.NotImplementedException())
-    interface IList<'a> with 
-         member this.Add(item: 'a): unit = this.Add(item)
-         member this.Clear(): unit = this.Clear()
-         member this.Contains(item: 'a): bool = this.Contains(item)
-         member this.CopyTo(array: 'a [], arrayIndex: int): unit = this.CopyTo(array, arrayIndex)
-         member this.Count: int = this.Count
-         member this.GetEnumerator(): Collections.IEnumerator = 
-             raise (System.NotImplementedException())
-         member this.GetEnumerator(): IEnumerator<'a> = 
-             raise (System.NotImplementedException())
-         member this.IndexOf(item: 'a): int = this.IndexOf(item)
-         member this.Insert(index: int, item: 'a): unit = this.Insert(index, item)
-         member this.IsReadOnly: bool = this.IsReadOnly
-         member this.Item
-             with get (index: int): 'a = this.[index]
-             and set (index: int) (v: 'a): unit = this.[index] <- v
-         member this.Remove(item: 'a): bool = this.Remove(item)
-         member this.RemoveAt(index: int): unit = this.RemoveAt(index)
-
+    let totalCount (n : Entry<'a>) = 
+        let mutable e = left(up n)
+        let mutable c = 0
+        do 
+            let mutable e = e.Down
+            while not(isNull e) do 
+                if isNull e.Left then 
+                    e <- e.Down
+                else    
+                    c <- e.Left.Count + c
+                    e <- e.Left
+        while not(isNull e) do 
+            c <- e.Count + c
+            e <- e.Right
+        c
+        
+                 
+                    
+(*       
 type SkipListRunning(length,p,maxLevel,seed) = 
     let tl = TopLevel(p,maxLevel,seed)
     let q = Queue<double>()
@@ -422,7 +399,7 @@ type SkipListRunning(length,p,maxLevel,seed) =
             mu <- (mu*double(q.Count - 1) + value) / double q.Count
     member x.Count = q.Count
           
-
+*)
 
 
 
