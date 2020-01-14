@@ -225,7 +225,7 @@ module SkipList =
 #endif
         e
     let fullCheck (node : Entry<'a>) = 
-#if DEBUG
+#if DEBUG__
         let mutable l = node |> up |> left
         while not(isNull l) do 
             let mutable e = l
@@ -507,42 +507,23 @@ module SkipList =
                         // We need to move Up nodes to maintain left side
                         // e pretty much has to be upper left
                         assert(isNull e.Up)
-                        while not(isNull e.Down) do
-                            if isNull e.Down.Right then 
-                                let down = e.Down
-                                //if not (isNull down.Down) || not(LanguagePrimitives.PhysicalEquality e n) then
-                                down.Up <- null
-                                e.Delete()
-                                checkDeleted e n
-                                fullCheck n
-                                e <- down
-                                if not(isNull e) then 
-                                    e.Up <- null
-                            else    
-                                let r = e.Down.Right
-                                if isNull r.Up then 
-                                    r.Up <- e
-                                    let down = e.Down
-                                    e.Value <- r.Value
-                                    e.Down <- r
-                                    e.Count <- e.Count - 1
-                                    e <- down
-                                    check r |> ignore
-                                    check r.Up |> ignore
-                                else
-                                    let down = e.Down
-                                    e.Down <- r.Up.Down
-                                    e.Right <- r.Up.Right
-                                    e.Value <- r.Up.Value
-                                    e.Count <- r.Up.Count
-                                    let old = r.Up
-                                    r.Up <- e
-                                    old.Delete()
-                                    checkDeleted old n
-                                    e <- down
-                        if not (isNull e.Right) then e.Right.Left <- null
-                        e.Delete()
-                        checkDeleted e n
+                        let mutable d = e |> down
+                        let mutable r = d.Right
+                        if isNull r then failwith "empty"
+                        while not(LanguagePrimitives.PhysicalEquality r.Up d.Up) do 
+                            let nu = r.Up
+                            d.Right <- r.Up.Right
+                            d.Value <- r.Up.Value
+                            d.Count <- r.Up.Count
+#if DEBUG
+                            r.Down <- null
+#endif
+                            r.Delete()
+                            r <- nu
+                            d <- d.Up
+                        while not(isNull d.Up) do 
+                            d.Up.Value <- d.Value
+                            d <- d.Up
 #if DEBUG
                         if not(LanguagePrimitives.PhysicalEquality n e) then 
                             fullCheck n
