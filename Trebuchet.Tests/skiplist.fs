@@ -30,7 +30,7 @@ let ``should reverse``() =
     {0.. 10000}
     |> Seq.rev
     |> Seq.iter (fun v -> SkipList.addWithPromote r 0.5 10 v e |> ignore)
-    let expected = 232 :: [0 .. 10000] |> Seq.sort |> Seq.toArray
+    let expected = 299 :: [0 .. 10000] |> Seq.sort |> Seq.toArray
     let a = e |> SkipList.items |> Seq.toArray
     Assert.Equal(expected.Length, a.Length)
     (expected,a)

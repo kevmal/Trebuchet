@@ -253,11 +253,14 @@ module SkipList =
             if isNull e.Left then 
                 if not(isNull e.Right) then 
                     let mutable u = e.Up
+                    let mutable laste = e
                     while not(isNull u)  do 
                         if u.Value <> e.Value then 
                             u.Value <- e.Value
-                            u.Count <- u.Count + e.Count
+                            u.Down <- laste
+                            u.Count <- u.Count + laste.Count
                             checkCount u
+                        laste <- u
                         u <- u.Up
         else
             while not(isNull e) do
