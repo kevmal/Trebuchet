@@ -139,6 +139,7 @@ module SkipList =
             p <- p.Up
 
     let checkCount (n : Entry<'a>) =
+        if isNull n then () else
         let count = 
             if isNull n.Right then 
                 let mutable e = down n
@@ -248,6 +249,7 @@ module SkipList =
                 elif r.NextDouble() < p then 
                     // promote
                     let parent = Entry.Create(v)
+                    checkAlignedParent e.Up
                     parent.Up <- e.Up.Up
                     parent.Down <- e
                     let u = findLesserOrEqOnLvl e.Value e.Up
@@ -274,9 +276,13 @@ module SkipList =
                             parent.Left.Right <- parent
                         e.Up <- parent
                         parent.Count <- calcCount parent
-                        u.Left.Count <- u.Left.Count - parent.Count
+                        if not(isNull parent.Left) then 
+                            parent.Left.Count <- parent.Left.Count - parent.Count
                         checkCount parent
+                        checkCount parent.Left
                         checkCount u
+                        checkCount u.Left
+                        checkCount u.Right
                         check parent |> ignore
                     do  // Update 'Up' down and right till next 'parent'
                         let mutable c = e.Right
@@ -284,6 +290,8 @@ module SkipList =
                             c.Up <- parent
                             checkAlignedParent c
                             c <- c.Right
+                    checkAlignedParent parent
+                    checkAlignedParent e
                     e <- check parent
                 else    
                     e <- null
