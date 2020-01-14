@@ -232,6 +232,13 @@ module SkipList =
         recalcUp e
         e
 
+    let totalCount (n : Entry<'a>) = 
+        let mutable e = left(up n)
+        let mutable c = 0
+        while not(isNull e) do 
+            c <- e.Count + c
+            e <- e.Right
+        c
     let addWithPromote (r : Random) (p : double) maxlevel (v : 'a) (n : Entry<'a>) = 
         let entry = add v n
         let mutable e = entry
@@ -241,83 +248,106 @@ module SkipList =
             assert (isNull e || isNull e.Right || e.Right.Value > e.Value)
             assert (isNull e || isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
             e
-        while not(isNull e) do
-            lvl <- lvl + 1
-            if not (isNull e.Up) then 
-                if e.Up.Value = e.Value then 
-                    e <- e.Up
-                elif r.NextDouble() < p then 
-                    // promote
-                    let parent = Entry.Create(v)
-                    checkAlignedParent e.Up
-                    parent.Up <- e.Up.Up
-                    parent.Down <- e
-                    let u = findLesserOrEqOnLvl e.Value e.Up
-                    assert(LanguagePrimitives.PhysicalEquality u e.Up)  //TODO: If this is okay replace u
-                    checkCount u
-                    if u.Value < e.Value then 
-                        parent.Left <- u
-                        parent.Right <- u.Right
-                        u.Right <- parent
-                        if not(isNull parent.Right) then 
-                            parent.Right.Left <- parent
-                        e.Up <- parent
-                        parent.Count <- calcCount parent
-                        u.Count <- u.Count - parent.Count
-                        checkCount parent
+        // Far left will always have a node on all levels
+        if not(isNull e.Up) then
+            if isNull e.Left then 
+                if not(isNull e.Right) then 
+                    let mutable u = e.Up
+                    while not(isNull u)  do 
+                        if u.Value <> e.Value then 
+                            u.Value <- e.Value
+                            u.Count <- u.Count + e.Count
+                            checkCount u
+                        u <- u.Up
+        else
+            while not(isNull e) do
+                lvl <- lvl + 1
+                if not (isNull e.Up) then 
+                    if e.Up.Value = e.Value then 
+                        e <- e.Up
+                    elif r.NextDouble() < p then 
+                        // promote
+                        let parent = Entry.Create(v)
+                        checkAlignedParent e.Up
+                        parent.Up <- e.Up.Up
+                        parent.Down <- e
+                        let u = findLesserOrEqOnLvl e.Value e.Up
+                        assert(LanguagePrimitives.PhysicalEquality u e.Up)  //TODO: If this is okay replace u
                         checkCount u
-                        check parent |> ignore
-                                
+                        if u.Value < e.Value then 
+                            parent.Left <- u
+                            parent.Right <- u.Right
+                            u.Right <- parent
+                            if not(isNull parent.Right) then 
+                                parent.Right.Left <- parent
+                            e.Up <- parent
+                            parent.Count <- calcCount parent
+                            u.Count <- u.Count - parent.Count
+                            checkCount parent
+                            checkCount u
+                            check parent |> ignore
+                        else    
+                            parent.Right <- u
+                            parent.Left <- u.Left
+                            u.Left <- parent
+                            if not(isNull parent.Left) then 
+                                parent.Left.Right <- parent
+                            e.Up <- parent
+                            parent.Count <- calcCount parent
+                            if not(isNull parent.Left) then 
+                                parent.Left.Count <- parent.Left.Count - parent.Count
+                            checkCount parent
+                            checkCount parent.Left
+                            checkCount u
+                            checkCount u.Left
+                            checkCount u.Right
+                            check parent |> ignore
+                        do  // Update 'Up' down and right till next 'parent'
+                            let mutable c = e.Right
+                            while not (isNull c) && not(LanguagePrimitives.PhysicalEquality c.Up parent.Right)  do 
+                                c.Up <- parent
+                                checkAlignedParent c
+                                c <- c.Right
+                        checkAlignedParent parent
+                        checkAlignedParent e
+                        e <- check parent
                     else    
-                        parent.Right <- u
-                        parent.Left <- u.Left
-                        u.Left <- parent
-                        if not(isNull parent.Left) then 
-                            parent.Left.Right <- parent
-                        e.Up <- parent
-                        parent.Count <- calcCount parent
-                        if not(isNull parent.Left) then 
-                            parent.Left.Count <- parent.Left.Count - parent.Count
-                        checkCount parent
-                        checkCount parent.Left
-                        checkCount u
-                        checkCount u.Left
-                        checkCount u.Right
-                        check parent |> ignore
-                    do  // Update 'Up' down and right till next 'parent'
-                        let mutable c = e.Right
-                        while not (isNull c) && not(LanguagePrimitives.PhysicalEquality c.Up parent.Right)  do 
-                            c.Up <- parent
-                            checkAlignedParent c
-                            c <- c.Right
-                    checkAlignedParent parent
-                    checkAlignedParent e
-                    e <- check parent
+                        e <- null
+                elif lvl < maxlevel && r.NextDouble() < p then 
+                    //new level
+                    // Create Up on far left
+                    let l = left e
+                    let lp = Entry.Create(l.Value)
+                    lp.Down <- l
+                    assert(isNull lp.Up)
+                    l.Up <- lp
+                    lp.Count <- l.Count
+                    let mutable nn = l.Right
+                    while not(LanguagePrimitives.PhysicalEquality nn e) do 
+                        lp.Count <- lp.Count + nn.Count
+                        nn.Up <- lp
+                        nn <- check nn.Right
+                    let parent = Entry.Create(v)
+                    parent.Count <- e.Count
+                    assert(isNull parent.Up)
+                    e.Up <- parent
+                    parent.Down <- e
+                    parent.Count <- e.Count
+                    nn <- check e.Right
+                    while not(isNull nn) do 
+                        parent.Count <- parent.Count + nn.Count
+                        assert(isNull nn.Up)
+                        nn.Up <- parent
+                        nn <- check nn.Right
+                    //parent.Count <- calcCount parent
+                    parent.Left <- lp
+                    lp.Right <- parent
+                    checkCount lp
+                    checkCount parent 
                 else    
                     e <- null
-            elif lvl < maxlevel && r.NextDouble() < p then 
-                //new level
-                let parent = Entry.Create(v)
-                parent.Count <- e.Count
-                parent.Up <- null
-                e.Up <- parent
-                parent.Down <- e
-                let mutable nn = e.Left
-                while not(isNull nn) do 
-                    assert(isNull nn.Up)
-                    nn.Up <- parent
-                    nn <- nn.Left
-                nn <- check e.Right
-                while not(isNull nn) do 
-                    assert(isNull nn.Up)
-                    nn.Up <- parent
-                    nn <- check nn.Right
-                parent.Count <- calcCount parent
-                checkCount parent 
-            else    
-                e <- null
         check entry
-    
+        
     
     let remove (v : 'a) (n : Entry<'a>) = 
         let mutable e = up n
@@ -379,21 +409,6 @@ module SkipList =
                     e <- e.Left
         c                     
 
-    let totalCount (n : Entry<'a>) = 
-        let mutable e = left(up n)
-        let mutable c = 0
-        do 
-            let mutable e = e.Down
-            while not(isNull e) do 
-                if isNull e.Left then 
-                    e <- e.Down
-                else    
-                    c <- e.Left.Count + c
-                    e <- e.Left
-        while not(isNull e) do 
-            c <- e.Count + c
-            e <- e.Right
-        c
         
     let rec iterNext (n : Entry<'a>) =
         if isNull n.Down then 
