@@ -55,7 +55,6 @@ module SkipList =
         member val Down : Entry<'a> = null with get,set
         member val Up : Entry<'a> = null with get,set
 #endif
-        member val Width = 1 with get,set
         member val Value : 'a = Unchecked.defaultof<_> with get,set
         member val Count = 1 with get,set
         override x.ToString() : string = 
@@ -68,7 +67,6 @@ module SkipList =
             x.Right <- null
             x.Down <- null
             x.Up <- null
-            x.Width <- 1
             x.Count <- 1
             x.Value <- Unchecked.defaultof<_>
         member x.Delete() = 
