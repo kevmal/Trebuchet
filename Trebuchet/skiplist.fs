@@ -21,10 +21,9 @@ module SkipList =
                 o.Reset()
                 pool.Enqueue o
 #if DEBUG
-        let mutable deleted = false
         let mutable left  = null
         let mutable right  = null
-        let mutable down  = null
+        let mutable down : Entry<'a> = null
         let mutable up  = null
 #endif
         static member val PoolSize = 16 with get,set
@@ -40,14 +39,21 @@ module SkipList =
                 assert(isNull v || v.Value > x.Value)
                 right <- v
         member x.Down 
-            with get() = down 
+            with get() =
+                assert(isNull down || down.Value = x.Value)
+                down 
             and set(v : Entry<'a>) = 
-                assert(isNull v || v.Value = x.Value)
+                assert(not(LanguagePrimitives.PhysicalEquality v x) && (isNull v || v.Value = x.Value))
                 down <- v
         member x.Up 
             with get() = up 
             and set(v : Entry<'a>) = 
+                assert(not(LanguagePrimitives.PhysicalEquality v x))
                 assert(isNull v || v.Value <= x.Value)
+                let mutable r = v
+                while not(isNull r) do 
+                    assert(not(LanguagePrimitives.PhysicalEquality r x))
+                    r <- r.Right
                 up <- v
 #else
         member val Left : Entry<'a> = null with get,set
@@ -69,18 +75,30 @@ module SkipList =
             x.Up <- null
             x.Count <- 1
             x.Value <- Unchecked.defaultof<_>
+#if DEBUG 
+        member val Deleted = false with get,set
+#endif
         member x.Delete() = 
 #if DEBUG 
-            deleted <- true
+            x.Deleted <- true
+            if not(isNull(x.Down)) then 
+                assert(not(LanguagePrimitives.PhysicalEquality x.Down.Up x))
+                let mutable n = 
+                    let mutable left = x :> _ Entry
+                    while not(isNull left.Left) do left <- left.Left
+                    left
+                while not(isNull n) do 
+                    assert(not(LanguagePrimitives.PhysicalEquality n.Up x))
+                    n <- n.Right
 #endif
             del x
-#if DEBUG 
-        member x.Deleted = deleted
-#endif
         static member Create<'a>(value : 'a) = 
-            let scc,v = pool.TryDequeue()
-            let v = if scc then v else Entry()
-            //let v = Entry()
+            //let scc,v = pool.TryDequeue()
+            //let v = if scc then v else Entry()
+            let v = Entry()
+#if DEBUG 
+            v.Deleted <- false
+#endif
             v.Value <- value 
             v
 
@@ -119,6 +137,10 @@ module SkipList =
         interval.Value <= n.Value && (isNull interval.Right || interval.Right.Value > n.Value)
 
     let findLesserOrEqOnLvl (v : 'a) (n : Entry<'a>) =
+        match box n.Value with
+        | :? int as x when x = 2151 -> 
+            printfn "23"
+        | _ -> ()
         let mutable lvl = 0
         let mutable e = n
         while not(isNull(e.Up)) && not(onDirectRight e n) do 
@@ -148,6 +170,7 @@ module SkipList =
             check n
 
     let checkAlignedParent (n : Entry<'a>) = 
+        if isNull n then () else
         let p = n.Up
         realignParent n |> ignore
         assert(LanguagePrimitives.PhysicalEquality p n.Up)
@@ -206,44 +229,75 @@ module SkipList =
         let mutable l = node |> up |> left
         while not(isNull l) do 
             let mutable e = l
-            while not(isNull e) do 
+            while not(isNull e) do
+                check e.Up
                 check e |> ignore
+                checkAlignedParent e
                 e <- e.Right
             l <- l.Down
 #endif
         ()
 
-
+    let checkDeleted deleted (node : Entry<'a>) = 
+    #if DEBUG
+        let mutable l = node |> up |> left
+        while not(isNull l) do 
+            let mutable e = l
+            while not(isNull e) do 
+                assert(not(LanguagePrimitives.PhysicalEquality e deleted))
+                assert(not(LanguagePrimitives.PhysicalEquality e.Up deleted))
+                e <- e.Right
+            l <- l.Down
+    #endif
+        ()
     let add (v : 'a) (n : Entry<'a>) = 
+#if DEBUG
+        let mutable branch = 0
+#endif
         let rec loop (n : Entry<'a>) lvl = 
+            checkAlignedParent n
             if v > n.Value then 
                 if isNull n.Right then 
                     if isNull n.Down then
+#if DEBUG
+                        branch <- 1
+#endif
                         let entry = Entry.Create(v)
                         entry.Left <- n
                         entry.Up <- n.Up
                         n.Right <- entry
                         check n |> ignore
+                        fullCheck n
                         check entry
                     else    
                         loop (n.Down) (lvl + 1)
                 elif n.Right.Value > v then 
                     if isNull n.Down then 
+#if DEBUG
+                        branch <- 2
+#endif
                         let entry = Entry.Create(v)
+                        check n.Up |> ignore
                         entry.Up <- n.Up
                         let r = n.Right
+                        let nright = n.Right
+                        let rleft = r.Left
                         n.Right <- entry
                         r.Left <- entry
                         entry.Left <- n
                         entry.Right <- r
                         check r |> ignore
                         check n |> ignore
+                        fullCheck n
                         check entry
                     else    
                         loop (n.Down) (lvl + 1)
                 else 
                     loop n.Right lvl
             elif v = n.Value then 
+#if DEBUG
+                branch <- 3
+#endif
                 let n = down n
                 n.Count <- n.Count + 1
                 n
@@ -256,21 +310,31 @@ module SkipList =
             else
                 if isNull n.Left then 
                     if isNull n.Down then 
+#if DEBUG
+                        branch <- 4
+#endif
                         let entry = Entry.Create(v)
                         entry.Right <- n
-                        if not(isNull n.Up) then
-                            n.Up.Count <- n.Up.Count + 1
-                            n.Up.Value <- entry.Value
-                            n.Up.Down <- entry
-                            entry.Up <- n.Up
+                        let mutable u = n.Up
+                        let mutable c = entry
+                        while not(isNull u) do
+                            u.Count <- u.Count + 1
+                            u.Value <- c.Value
+                            u.Down <- c
+                            c.Up <- u
+                            c <- u
+                            u <- u.Up
                         n.Left <- entry
                         check n |> ignore
+                        fullCheck n
                         check entry
                     else    
                         loop (n.Down) (lvl + 1)
                 elif n.Left.Value < v then 
                     if isNull n.Down then 
-                        let dleteme = n.Left.Value  //TODO delete this, just a debug value
+#if DEBUG
+                        branch <- 5
+#endif
                         let entry = Entry.Create(v)
                         entry.Up <- n.Left.Up
                         let l = n.Left
@@ -280,13 +344,16 @@ module SkipList =
                         entry.Left <- l
                         check l |> ignore
                         check n |> ignore
+                        fullCheck n
                         check entry
                     else
                         loop (n.Left.Down) (lvl + 1)
                 else 
                     loop n.Left lvl
         let e = loop n 0 |> check 
+        fullCheck n
         recalcUp e
+        fullCheck n
         e
 
     let totalCount (n : Entry<'a>) = 
@@ -298,23 +365,25 @@ module SkipList =
         c
     
     let addWithPromote (r : Random) (p : double) maxlevel (v : 'a) (n : Entry<'a>) = 
+        fullCheck n
         let entry = add v n
+        fullCheck n
         let mutable e = entry
         let mutable lvl = 0
         // Far left will always have a node on all levels
-        if not(isNull e.Up) then
-            if isNull e.Left then 
-                if not(isNull e.Right) then 
-                    let mutable u = e.Up
-                    let mutable laste = e
-                    while not(isNull u)  do 
-                        if u.Value <> e.Value then 
-                            u.Value <- e.Value
-                            u.Down <- laste
-                            u.Count <- u.Count + laste.Count
-                            checkCount u
-                        laste <- u
-                        u <- u.Up
+        if not(isNull e.Up) && isNull e.Left then 
+            if not(isNull e.Right) then 
+                let mutable u = e.Up
+                let mutable laste = e
+                while not(isNull u)  do 
+                    if u.Value <> e.Value then 
+                        u.Value <- e.Value
+                        u.Down <- laste
+                        u.Count <- u.Count + laste.Count
+                        checkCount u
+                    laste <- u
+                    u <- u.Up
+                fullCheck n
         else
             while not(isNull e) && r.NextDouble() < p do
                 lvl <- lvl + 1
@@ -325,10 +394,10 @@ module SkipList =
                         // promote
                         let parent = Entry.Create(v)
                         checkAlignedParent e.Up
+                        checkAlignedParent e
                         parent.Up <- e.Up.Up
                         parent.Down <- e
-                        let u = findLesserOrEqOnLvl e.Value e.Up
-                        assert(LanguagePrimitives.PhysicalEquality u e.Up)  //TODO: If this is okay replace u
+                        let u = e.Up
                         checkCount u
                         if u.Value < e.Value then 
                             parent.Left <- u
@@ -366,7 +435,10 @@ module SkipList =
                                 c <- c.Right
                         checkAlignedParent parent
                         checkAlignedParent e
+                        checkAlignedParent e.Left
+                        checkAlignedParent e.Right
                         e <- check parent
+                        fullCheck n
                     else    
                         e <- null
                 elif lvl < maxlevel then 
@@ -400,9 +472,13 @@ module SkipList =
                     lp.Right <- parent
                     checkCount lp
                     checkCount parent 
+                    fullCheck n
                 else    
                     e <- null
+            fullCheck n
+        fullCheck n
         check entry
+
         
     let singleton v = 
         let e = Entry.Create(v)
@@ -434,24 +510,39 @@ module SkipList =
                         while not(isNull e.Down) do
                             if isNull e.Down.Right then 
                                 let down = e.Down
+                                //if not (isNull down.Down) || not(LanguagePrimitives.PhysicalEquality e n) then
+                                down.Up <- null
                                 e.Delete()
+                                checkDeleted e n
                                 fullCheck n
                                 e <- down
                                 if not(isNull e) then 
                                     e.Up <- null
                             else    
                                 let r = e.Down.Right
-                                r.Up <- e
-                                e.Value <- r.Value
-                                let down = e.Down
-                                e.Down <- r
-                                e.Count <- e.Count - 1
-                                e <- down
-                                check r |> ignore
-                                check r.Up |> ignore
-                                checkCount r.Up
+                                if isNull r.Up then 
+                                    r.Up <- e
+                                    let down = e.Down
+                                    e.Value <- r.Value
+                                    e.Down <- r
+                                    e.Count <- e.Count - 1
+                                    e <- down
+                                    check r |> ignore
+                                    check r.Up |> ignore
+                                else
+                                    let down = e.Down
+                                    e.Down <- r.Up.Down
+                                    e.Right <- r.Up.Right
+                                    e.Value <- r.Up.Value
+                                    e.Count <- r.Up.Count
+                                    let old = r.Up
+                                    r.Up <- e
+                                    old.Delete()
+                                    checkDeleted old n
+                                    e <- down
                         if not (isNull e.Right) then e.Right.Left <- null
                         e.Delete()
+                        checkDeleted e n
 #if DEBUG
                         if not(LanguagePrimitives.PhysicalEquality n e) then 
                             fullCheck n
@@ -461,22 +552,29 @@ module SkipList =
                             assert (not(isNull(e.Left)))
                             e.Left.Right <- e.Right
                             let mutable r = e.Down.Right
-                            e.Left.Count <- e.Left.Count - 1 + e.Count
+                            e.Left.Count <- e.Left.Count + e.Count - 1
                             while(not(isNull(r)) && LanguagePrimitives.PhysicalEquality r.Up e) do
                                 r.Up <- e.Left
+                                //e.Left.Count <- e.Left.Count + r.Count
                                 checkAlignedParent r
+                                r <- r.Right
                             if not(isNull e.Right) then e.Right.Left <- e.Left
                             check e.Left |> ignore
                             check e.Right |> ignore
                             checkCount e.Right |> ignore
-                            checkCount e.Left |> ignore
+                            //checkCount e.Left |> ignore
                             let down = e.Down
+#if DEBUG
+                            down.Up <- null
+#endif
                             e.Delete()
+                            checkDeleted e n
                             fullCheck n
                             e <- down
                         e.Left.Right <- e.Right
                         if not(isNull e.Right) then e.Right.Left <- e.Left
                         e.Delete()
+                        checkDeleted e n
 #if DEBUG
                         if not(LanguagePrimitives.PhysicalEquality n e) then 
                             fullCheck n
@@ -497,6 +595,8 @@ module SkipList =
                     e <- e.Down
                 else    
                     e <- e.Left
+        if not(LanguagePrimitives.PhysicalEquality n e) then 
+            fullCheck n
         c                        
                     
     let valueCount (v : 'a) (n : Entry<'a>) = 

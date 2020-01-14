@@ -58,6 +58,35 @@ let ``sorting random``() =
 
 
 [<Fact>]
+let ``sorting random with removes int``() = 
+    let e = SkipList.singleton 322
+    let r = Random(232)
+    let r2 = Random(2349)
+    let ra = ResizeArray()
+    ra.Add 322
+    for i = 1 to 5000 do 
+        let v = r2.Next(3000)
+        ra.Add v
+        SkipList.addWithPromote r 0.5 10 v e  |> ignore
+        if r2.NextDouble() < 0.3 then 
+            let i = r2.Next(ra.Count)
+            let r = ra.[i]
+            ra.RemoveAt i
+            SkipList.remove r e |> ignore
+    let sorted = ra.ToArray() |> Array.sort
+    let a = e |> SkipList.items |> Seq.toArray
+    (sorted,a)
+    ||> Array.iter2 (fun e a -> Assert.Equal(e,a))
+    // remove all but one
+    while ra.Count > 1 do 
+        let i = r2.Next(ra.Count)
+        let r = ra.[i]
+        ra.RemoveAt i
+        SkipList.remove r e |> ignore
+    Assert.Equal(ra.[0], e.Value)
+        
+
+[<Fact>]
 let ``sorting random with removes``() = 
     let e = SkipList.singleton 322.0
     let r = Random(232)
