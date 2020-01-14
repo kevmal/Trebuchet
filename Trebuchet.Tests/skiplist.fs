@@ -3,6 +3,7 @@
 open Xunit
 open Trebuchet.DataStructures
 open System
+open Trebuchet.DataStructures
 
 
 
@@ -76,5 +77,59 @@ let ``sorting random with removes``() =
     let a = e |> SkipList.items |> Seq.toArray
     (sorted,a)
     ||> Array.iter2 (fun e a -> Assert.Equal(e,a))
+    // remove all but one
+    while ra.Count > 1 do 
+        let i = r2.Next(ra.Count)
+        let r = ra.[i]
+        ra.RemoveAt i
+        SkipList.remove r e |> ignore
+    Assert.Equal(ra.[0], e.Value)
+        
+
+
+[<Fact>]
+let ``int indexing 1``() = 
+    let e = SkipList.singleton 0
+    let ra = ResizeArray([1 .. 1000])
+    let r = Random(232)
+    let r2 = Random(2349)
+    while ra.Count > 0 do 
+        let i = r2.Next(ra.Count)
+        let v = ra.[i]
+        ra.RemoveAt i
+        SkipList.addWithPromote r 0.5 10 v e  |> ignore
+    SkipList.remove 0 e |> ignore
+    Assert.Equal(1000, SkipList.totalCount e)
+    let last = SkipList.nth 999 e
+    Assert.Equal(1000, last.Value)
+    [0 .. 999]
+    |> List.iter 
+        (fun i ->
+            let n = SkipList.nth i e
+            Assert.Equal(i + 1, n.Value)
+        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

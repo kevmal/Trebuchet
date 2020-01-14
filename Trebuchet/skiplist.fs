@@ -543,6 +543,41 @@ module SkipList =
                     yield i.Value
                 i <- iterNext i
         }
+    let nth i (node : Entry<'a>) = 
+        let mutable r = null
+        let mutable n = node |> up |> left
+        let mutable lastn = n
+        let mutable lastj = 0
+        let mutable j = 0
+        while not(isNull n) do
+            while j < i && not(isNull n) do 
+                lastj <- j
+                lastn <- n
+                j <- n.Count + j
+                n <- n.Right
+            if j = i then 
+                if not(isNull(n)) then 
+                    r <- down n
+                    n <- null
+                else
+                    n <- lastn.Down
+                    j <- lastj
+            elif j < i then 
+                n <- lastn.Down
+            elif j - i < i - lastj && not(isNull(n)) then 
+                n <- n.Down
+                while j > i && not(isNull n) do 
+                    lastj <- j
+                    lastn <- n
+                    j <- j - n.Count
+                    n <- n.Left
+                n <- lastn
+            else
+                n <- lastn.Down
+                j <- lastj
+        match r with 
+        | null -> raise(IndexOutOfRangeException(sprintf "last index %d" j))
+        | r -> r
 (*       
 type SkipListRunning(length,p,maxLevel,seed) = 
     let tl = TopLevel(p,maxLevel,seed)
