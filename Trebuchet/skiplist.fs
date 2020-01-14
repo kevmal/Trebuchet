@@ -20,11 +20,41 @@ module SkipList =
             if pool.Count < Entry<'a>.PoolSize then 
                 o.Reset()
                 pool.Enqueue o
+#if DEBUG
+        let mutable deleted = false
+        let mutable left  = null
+        let mutable right  = null
+        let mutable down  = null
+        let mutable up  = null
+#endif
         static member val PoolSize = 16 with get,set
+#if DEBUG
+        member x.Left 
+            with get() = left 
+            and set(v : Entry<'a>) = 
+                assert(isNull v || v.Value < x.Value)
+                left <- v
+        member x.Right 
+            with get() = right 
+            and set(v : Entry<'a>) = 
+                assert(isNull v || v.Value > x.Value)
+                right <- v
+        member x.Down 
+            with get() = down 
+            and set(v : Entry<'a>) = 
+                assert(isNull v || v.Value = x.Value)
+                down <- v
+        member x.Up 
+            with get() = up 
+            and set(v : Entry<'a>) = 
+                assert(isNull v || v.Value <= x.Value)
+                up <- v
+#else
         member val Left : Entry<'a> = null with get,set
         member val Right : Entry<'a> = null with get,set
         member val Down : Entry<'a> = null with get,set
         member val Up : Entry<'a> = null with get,set
+#endif
         member val Width = 1 with get,set
         member val Value : 'a = Unchecked.defaultof<_> with get,set
         member val Count = 1 with get,set
@@ -41,10 +71,18 @@ module SkipList =
             x.Width <- 1
             x.Count <- 1
             x.Value <- Unchecked.defaultof<_>
-        member x.Delete() = del x
+        member x.Delete() = 
+#if DEBUG 
+            deleted <- true
+#endif
+            del x
+#if DEBUG 
+        member x.Deleted = deleted
+#endif
         static member Create<'a>(value : 'a) = 
-            let scc,v = pool.TryDequeue()
-            let v = if scc then v else Entry()
+            //let scc,v = pool.TryDequeue()
+            //let v = if scc then v else Entry()
+            let v = Entry()
             v.Value <- value 
             v
 
@@ -157,12 +195,28 @@ module SkipList =
                 c
         assert(count = n.Count)            
 
+    let check (e : Entry<'a>) = 
+#if DEBUG        
+        assert (isNull e || not e.Deleted)
+        assert (isNull e || isNull e.Left || e.Left.Value < e.Value)
+        assert (isNull e || isNull e.Right || e.Right.Value > e.Value)
+        assert (isNull e || isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
+#endif
+        e
+    let fullCheck (node : Entry<'a>) = 
+#if DEBUG
+        let mutable l = node |> up |> left
+        while not(isNull l) do 
+            let mutable e = l
+            while not(isNull e) do 
+                check e |> ignore
+                e <- e.Right
+            l <- l.Down
+#endif
+        ()
+
+
     let add (v : 'a) (n : Entry<'a>) = 
-        let check (e : Entry<'a>) = 
-            assert (isNull e.Left || e.Left.Value < e.Value)
-            assert (isNull e.Right || e.Right.Value > e.Value)
-            assert (isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
-            e
         let rec loop (n : Entry<'a>) lvl = 
             if v > n.Value then 
                 if isNull n.Right then 
@@ -206,7 +260,11 @@ module SkipList =
                     if isNull n.Down then 
                         let entry = Entry.Create(v)
                         entry.Right <- n
-                        entry.Up <- n.Up
+                        if not(isNull n.Up) then
+                            n.Up.Count <- n.Up.Count + 1
+                            n.Up.Value <- entry.Value
+                            n.Up.Down <- entry
+                            entry.Up <- n.Up
                         n.Left <- entry
                         check n |> ignore
                         check entry
@@ -214,8 +272,9 @@ module SkipList =
                         loop (n.Down) (lvl + 1)
                 elif n.Left.Value < v then 
                     if isNull n.Down then 
+                        let dleteme = n.Left.Value  //TODO delete this, just a debug value
                         let entry = Entry.Create(v)
-                        entry.Up <- n.Up
+                        entry.Up <- n.Left.Up
                         let l = n.Left
                         n.Left <- entry
                         l.Right <- entry
@@ -239,15 +298,11 @@ module SkipList =
             c <- e.Count + c
             e <- e.Right
         c
+    
     let addWithPromote (r : Random) (p : double) maxlevel (v : 'a) (n : Entry<'a>) = 
         let entry = add v n
         let mutable e = entry
         let mutable lvl = 0
-        let check (e : Entry<'a>) = 
-            assert (isNull e || isNull e.Left || e.Left.Value < e.Value)
-            assert (isNull e || isNull e.Right || e.Right.Value > e.Value)
-            assert (isNull e || isNull e.Down || Object.ReferenceEquals(e.Down.Up, e))
-            e
         // Far left will always have a node on all levels
         if not(isNull e.Up) then
             if isNull e.Left then 
@@ -351,7 +406,13 @@ module SkipList =
                     e <- null
         check entry
         
-    
+    let singleton v = 
+        let e = Entry.Create(v)
+        let p = Entry.Create(v)
+        p.Down <- e
+        e.Up <- p
+        p
+
     let remove (v : 'a) (n : Entry<'a>) = 
         let mutable e = up n
         let mutable c = -1
@@ -359,26 +420,75 @@ module SkipList =
             e <- e.Left
         while not(isNull e) do
             if e.Value = v then 
+                let d = down e
                 while not(isNull e.Up) && e.Up.Value = e.Value do e <- e.Up
-                if e.Count = 1 then 
-                    let mutable left = e
-                    c <- 0
+                do
+                    let mutable e = e.Up
                     while not(isNull e) do
-                        e.Left.Right <- e.Right
-                        e.Right.Left <- e.Left
-                        left <- e.Left
-                        let down = e.Down
+                        e.Count <- e.Count - 1
+                        e <- e.Up
+                if d.Count = 1 then 
+                    c <- 0
+                    if isNull e.Left then 
+                        // We need to move Up nodes to maintain left side
+                        // e pretty much has to be upper left
+                        assert(isNull e.Up)
+                        while not(isNull e.Down) do
+                            if isNull e.Down.Right then 
+                                let down = e.Down
+                                e.Delete()
+                                fullCheck n
+                                e <- down
+                                if not(isNull e) then 
+                                    e.Up <- null
+                            else    
+                                let r = e.Down.Right
+                                r.Up <- e
+                                e.Value <- r.Value
+                                let down = e.Down
+                                e.Down <- r
+                                e.Count <- e.Count - 1
+                                e <- down
+                                check r |> ignore
+                                check r.Up |> ignore
+                                checkCount r.Up
+                        if not (isNull e.Right) then e.Right.Left <- null
                         e.Delete()
-                        e <- down
-                    if not (isNull left) then recalcUp left
+#if DEBUG
+                        if not(LanguagePrimitives.PhysicalEquality n e) then 
+                            fullCheck n
+#endif
+                    else
+                        while not(isNull e.Down) do
+                            assert (not(isNull(e.Left)))
+                            e.Left.Right <- e.Right
+                            let mutable r = e.Down.Right
+                            e.Left.Count <- e.Left.Count - 1 + e.Count
+                            while(not(isNull(r)) && LanguagePrimitives.PhysicalEquality r.Up e) do
+                                r.Up <- e.Left
+                                checkAlignedParent r
+                            if not(isNull e.Right) then e.Right.Left <- e.Left
+                            check e.Left |> ignore
+                            check e.Right |> ignore
+                            checkCount e.Right |> ignore
+                            checkCount e.Left |> ignore
+                            let down = e.Down
+                            e.Delete()
+                            fullCheck n
+                            e <- down
+                        e.Left.Right <- e.Right
+                        if not(isNull e.Right) then e.Right.Left <- e.Left
+                        e.Delete()
+#if DEBUG
+                        if not(LanguagePrimitives.PhysicalEquality n e) then 
+                            fullCheck n
+#endif
+                    e <- null
                 else    
-                    let mutable last = e
                     while not(isNull e) do
                         e.Count <- e.Count - 1
                         c <- e.Count
-                        last <- e
                         e <- e.Down
-                    recalcUp last
             elif e.Value < v then 
                 if isNull e.Right || e.Right.Value > v then 
                     e <- e.Down
