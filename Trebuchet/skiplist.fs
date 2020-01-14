@@ -111,6 +111,12 @@ module SkipList =
             check n.Up |> ignore
             check n
 
+    let checkAlignedParent (n : Entry<'a>) = 
+        let p = n.Up
+        realignParent n |> ignore
+        assert(LanguagePrimitives.PhysicalEquality p n.Up)
+           
+
     let calcCount (n : Entry<'a>) =
         let mutable e = if isNull n.Down then n else n.Down
         let mutable c = 0
@@ -128,7 +134,7 @@ module SkipList =
     let recalcUp (e:Entry<'a>) =
         let mutable p = e
         while not(isNull p.Up) do
-            realignParent p |> ignore
+            checkAlignedParent p |> ignore
             p.Up.Count <- calcCount p.Up
             p <- p.Up
 
@@ -244,7 +250,8 @@ module SkipList =
                     let parent = Entry.Create(v)
                     parent.Up <- e.Up.Up
                     parent.Down <- e
-                    let mutable u = findLesserOrEqOnLvl e.Value e.Up
+                    let u = findLesserOrEqOnLvl e.Value e.Up
+                    assert(LanguagePrimitives.PhysicalEquality u e.Up)  //TODO: If this is okay replace u
                     checkCount u
                     if u.Value < e.Value then 
                         parent.Left <- u
@@ -258,6 +265,7 @@ module SkipList =
                         checkCount parent
                         checkCount u
                         check parent |> ignore
+                                
                     else    
                         parent.Right <- u
                         parent.Left <- u.Left
@@ -270,6 +278,12 @@ module SkipList =
                         checkCount parent
                         checkCount u
                         check parent |> ignore
+                    do  // Update 'Up' down and right till next 'parent'
+                        let mutable c = e.Right
+                        while not (isNull c) && not(LanguagePrimitives.PhysicalEquality c.Up parent.Right)  do 
+                            c.Up <- parent
+                            checkAlignedParent c
+                            c <- c.Right
                     e <- check parent
                 else    
                     e <- null
@@ -373,8 +387,28 @@ module SkipList =
             e <- e.Right
         c
         
-                 
+    let rec iterNext (n : Entry<'a>) =
+        if isNull n.Down then 
+            n.Right
+        else iterNext n.Down
                     
+    let iterStart (n : Entry<'a>) = 
+        let mutable e = up n |> left
+        while not (isNull e.Down) || not (isNull e.Left) do 
+            if isNull e.Left then 
+                e <- e.Down
+            else    
+                e <- e.Left
+        e
+
+    let items (n : Entry<'a>) = 
+        seq{
+            let mutable i = iterStart n
+            while not(isNull i) do
+                for j = 0 to i.Count - 1 do
+                    yield i.Value
+                i <- iterNext i
+        }
 (*       
 type SkipListRunning(length,p,maxLevel,seed) = 
     let tl = TopLevel(p,maxLevel,seed)

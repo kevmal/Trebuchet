@@ -22,3 +22,17 @@ let simple1() =
     Assert.Equal(0, SkipList.remove 300 e)
     Assert.Equal(0, SkipList.valueCount 300 e)
     Assert.Equal(10000, SkipList.totalCount e)
+
+[<Fact>]
+let ``should reverse``() = 
+    let e = SkipList.Entry.Create 299
+    let r = Random(232)
+    {0.. 10000}
+    |> Seq.rev
+    |> Seq.iter (fun v -> SkipList.addWithPromote r 0.5 10 v e |> ignore)
+    let expected = 232 :: [0 .. 10000] |> Seq.sort |> Seq.toArray
+    let a = e |> SkipList.items |> Seq.toArray
+    Assert.Equal(expected.Length, a.Length)
+    (expected,a)
+    ||> Array.iter2 (fun e a -> Assert.Equal(e,a))
+    
