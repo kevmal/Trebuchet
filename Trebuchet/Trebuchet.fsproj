@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="circularbuffer.fs" />
+    <Compile Include="runningsort.fs" />
     <Compile Include="skiplist.fs" />
   </ItemGroup>
 
