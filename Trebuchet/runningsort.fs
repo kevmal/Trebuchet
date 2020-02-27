@@ -41,6 +41,27 @@ type RunningSort<'a when 'a : comparison>(length : int) =
     member x.Quantile(quant : double) = 
         let i = (quant*double q.Count) |> round |> max 0.0 |> int |> min (q.Count - 1)
         values.[i]
+    member x.QuantileRank(value : 'a) = 
+        let i = Array.BinarySearch(values,value)
+        if i < 0 then 
+            let i = ~~~i
+            if i = 0 then 
+                0.0
+            else 
+                (double i - 0.5) / double q.Count
+        else 
+            let mutable count = 0
+            let mutable i = i
+            let mutable j = i 
+            while j >= 0 && values.[j] = value do 
+                count <- count + 1 
+                j <- j - 1
+                i <- i - 1
+            j <- i + 1
+            while j < values.Length && values.[j] = value do 
+                count <- count + 1
+                j <- j + 1
+            (double i + 0.5*double count) / double q.Count
     member x.Values = values
     member x.Queue = q
     member x.Reset() = 
