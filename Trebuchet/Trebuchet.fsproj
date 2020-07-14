@@ -1,13 +1,25 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks>netstandard2.1;net472</TargetFrameworks>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="memarray.fs" />
+    <Compile Include="vector.fs" />
+    <Compile Include="util.fs" />
+    <Compile Include="decisiontree.fs" />
     <Compile Include="circularbuffer.fs" />
     <Compile Include="runningsort.fs" />
     <Compile Include="skiplist.fs" />
+    <Compile Include="timeindex.fs" />
+    <Compile Include="aggindex.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Memory" Version="4.5.4" />
+    <PackageReference Include="System.Numerics.Vectors" Version="4.5.0" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="4.7.1" />
   </ItemGroup>
 
 </Project>
