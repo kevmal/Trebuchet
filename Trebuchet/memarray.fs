@@ -299,7 +299,6 @@ type MemResizeArray<'a when 'a : unmanaged>(load : bool, filename : string, capa
 
             
 
-type DataLog()    
 (*
 /// Basic operations on arrays
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]

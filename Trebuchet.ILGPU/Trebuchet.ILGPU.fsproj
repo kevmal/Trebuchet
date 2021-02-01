@@ -5,8 +5,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="Script1.fsx" />
     <Compile Include="Library.fs" />
   </ItemGroup>
+
+  <ItemGroup />
 
   <ItemGroup>
     <PackageReference Include="ILGPU" Version="0.8.1.1" />

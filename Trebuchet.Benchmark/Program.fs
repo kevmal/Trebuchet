@@ -27,12 +27,17 @@ type QuickStart() =
     let tc4 = TimeChunkIndex(times,times.Length).FindSampleIndex
     let ji = JumpIndex.create 32 32 times
         
-    //[<Benchmark>]
+    [<Benchmark>]
+    member x.BaseLine() = 
+        for i = 0 to moreTimes.Length - 1 do
+            let j = moreTimes.[i].AddDays(2.0)
+            () 
+    [<Benchmark>]
     member x.BinarySearch() = 
         for i = 0 to moreTimes.Length - 1 do
             let j = binarySearch (fun (x : DateTime) (y : DateTime) -> x.Ticks > y.Ticks) times 0 (times.Length - 1) moreTimes.[i]
             ()
-    //[<Benchmark>]
+    [<Benchmark>]
     member x.BinarySearchRegularCompare() = 
         for i = 0 to moreTimes.Length - 1 do
             let j = binarySearch (>) times 0 (times.Length - 1) moreTimes.[i]
@@ -62,7 +67,7 @@ type QuickStart() =
         for i = 0 to moreTimes.Length - 1 do
             let j = moreTimes.[i].AddTicks(times.[i].Ticks)
             ()
-    //[<Benchmark>]
+    [<Benchmark>]
     member x.JumpIndex() = 
         let jc = JumpCursor(ji)
         for i = 0 to moreTimes.Length - 1 do    
@@ -87,14 +92,18 @@ type ArrayMath() =
             c.[i] <- a.[i] + b.[i]
         c
     [<Benchmark>]
-    member x.SimdOnArray() = 
-        Vector.add c a b
-    //[<Benchmark>]
-    //member x.ILGPUCpu() = ILGPU.Say.add c a b
+    member x.SimdOnArray() =
+        V.add c a b
+    [<Benchmark>]
+    member x.SimdOnArray2() = V a + V b
+    [<Benchmark>]
+    member x.ILGPUCpu() = ILGPU.Say.add c a b
     [<Benchmark>]
     member x.NaiveFSharp() = (a,b) ||> Array.iteri2 (fun i a b -> c.[i] <- a + b)
     [<Benchmark>]
     member x.MathNet() = a2.Add(b2,c2)
+    //[<Benchmark>]
+    //member x.MathNet2() = MathNet.Numerics.LinearAlgebra.CreateVector.DenseOfArray(a).Add(MathNet.Numerics.LinearAlgebra.CreateVector.DenseOfArray(b),c2)
 
 
             
@@ -103,6 +112,6 @@ type ArrayMath() =
         
 [<EntryPoint>]
 let main argv =
-    let summary = BenchmarkRunner.Run<ArrayMath>()
+    let summary = BenchmarkRunner.Run<QuickStart>()
     printfn "Hello World from F#!"
     0 // return an integer exit code
