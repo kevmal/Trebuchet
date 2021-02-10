@@ -193,6 +193,7 @@ type MemResizeArray<'a when 'a : unmanaged>(load : bool, filename : string, capa
         i <- i + 1
     member x.ToMemArray() = new MemArray<'a>(filename)
     member x.Count = i
+    member x.SetCount(c) = i <- c
     member x.Dispose(disposing) = 
         if not disposed then 
             if disposing then 

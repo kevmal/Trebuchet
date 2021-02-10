@@ -7,6 +7,7 @@ open Trebuchet.Util
 open BenchmarkDotNet.Attributes
 open Trebuchet.DataIndex
 open System.IO
+open System.Runtime.CompilerServices
 
 
 type QuickStart() = 
@@ -105,13 +106,107 @@ type ArrayMath() =
     //[<Benchmark>]
     //member x.MathNet2() = MathNet.Numerics.LinearAlgebra.CreateVector.DenseOfArray(a).Add(MathNet.Numerics.LinearAlgebra.CreateVector.DenseOfArray(b),c2)
 
+let f s =  (s <<< 1) + 1L
+let inline f2 s =  (s <<< 1) + 1L
+
+[<Struct>]
+type Crap(i : int) = 
+    member x.F(s) =  (s <<< 1) + 1L
+[<Struct>]
+type Crap2(i : int) = 
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member x.F(s) =  (s <<< 1) + 1L
+type ICrap = 
+    abstract member F : int64 -> int64
+[<Struct>]
+type Crap3(i : int) = 
+    member x.F(s) =  (s <<< 1) + 1L
+    interface ICrap with
+        member x.F(s) = x.F(s)
+
+type Crap4<'a when 'a : struct and 'a :> ICrap>(a : 'a) = 
+    member x.F(s) =  a.F s
+
+type Crap5(i : int) = 
+    member x.F(s) =  (s <<< 1) + 1L
+    interface ICrap with
+        member x.F(s) = x.F(s)
+
+type Crap6<'a when 'a :> ICrap>(a : 'a) = 
+    member x.F(s) =  a.F s
+
+type Poo() = 
+    [<Benchmark>]
+    member x.Best() = 
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- (s <<< 1) + 1L
+        s
+    [<Benchmark>]
+    member x.FsCall() =
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- f s
+        s
+    [<Benchmark>]
+    member x.FsInlineCall() =
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- f2 s
+        s
+    [<Benchmark>]
+    member x.StructCall() =
+        let c = Crap 1
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- c.F s
+        s
+    [<Benchmark>]
+    member x.StructCallInlining() =
+        let c = Crap2 1
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- c.F s
+        s
+    [<Benchmark>]
+    member x.InterfaceObjCtor() =
+        let c = {new ICrap with member x.F(s) = (s <<< 1) + 1L}
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- c.F s
+        s
+    [<Benchmark>]
+    member x.Interface() =
+        let c = Crap3(1) :> ICrap
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- c.F s
+        s
+    [<Benchmark>]
+    member x.InterfaceGeneric() =
+        let c = Crap4(Crap3(1))
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- c.F s
+        s
+    [<Benchmark>]
+    member x.InterfaceGenericNoStruct() =
+        let c = Crap6(Crap5(1))
+        let mutable s = 1L
+        for i = 0 to 1000000 do
+            s <- c.F s
+        s
+    //[<Benchmark>]
+    //member x.MathNet2() = MathNet.Numerics.LinearAlgebra.CreateVector.DenseOfArray(a).Add(MathNet.Numerics.LinearAlgebra.CreateVector.DenseOfArray(b),c2)
+
 
             
+                                
                     
         
         
 [<EntryPoint>]
 let main argv =
-    let summary = BenchmarkRunner.Run<QuickStart>()
+    let summary = BenchmarkRunner.Run<Poo>()
     printfn "Hello World from F#!"
     0 // return an integer exit code
