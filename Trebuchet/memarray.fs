@@ -186,7 +186,9 @@ type MemResizeArray<'a when 'a : unmanaged>(load : bool, filename : string, capa
         x.Expand(newCapacity)
     member inline x.Item(i : int) = NativePtr.get x.NativePtr i
     member x.Set(index : int, v) = 
-        NativePtr.set x.NativePtr i v
+        if index < 0 || index > lastIndex then 
+            raise <| IndexOutOfRangeException($"{index} not in [0, {lastIndex}]")
+        NativePtr.set x.NativePtr index v
     member x.Add(v : 'a) = 
         if i = lastIndex then x.Expand()
         NativePtr.set x.NativePtr i v
