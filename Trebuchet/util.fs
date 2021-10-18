@@ -217,7 +217,7 @@ module Progress =
         match printer with 
         | None -> defaultPrinter x
         | Some p -> p x
-    let mutable printerActive = 0
+    let printerActive = ref 0
     let mutable printerTask = None
     let unwatch (p : Progress) = lock(lck)(fun _ -> monitored |> Seq.tryFindIndex (fun x -> x.Id = p.Id) |> Option.iter (monitored.RemoveAt))
     let makePrinter() = 
@@ -225,50 +225,58 @@ module Progress =
             (fun _ -> 
                 match printerTask with 
                 | None -> 
-                    Threading.Interlocked.Increment &printerActive |> ignore
+                    Threading.Interlocked.Increment printerActive |> ignore
                     let task = 
                         async {
-                            let summaries = Dictionary<int, ProgressSummary>()
-                            lock(lck) (fun _ -> monitored.ToArray() ) |> Array.iter (fun (x : Progress) -> summaries.Add(x.Id, x.Summary()))
-                            let mutable last = DateTime.Now
-                            let mutable running = true
-                            while printerActive > 0 && running do 
-                                do! Async.Sleep (int snapShotInterval.TotalMilliseconds)
-                                let clean = (DateTime.Now - last).Ticks > cleanInterval.Ticks 
-                                last <- DateTime.Now
-                                let m = lock(lck) (fun _ -> monitored.ToArray())
-                                for x in m do 
-                                    match summaries.TryGetValue(x.Id) with 
-                                    | true, s -> 
-                                        //printfn "%A" (DateTime.Now - s.TimeStamp, printInterval)
-                                        if s.TotalSteps > 0L && s.CurrentStep = s.TotalSteps then 
-                                            if clean then 
-                                                unwatch x
-                                        elif (DateTime.Now - s.TimeStamp).Ticks > printInterval.Ticks then 
+                            try
+                                do! Async.SwitchToThreadPool()
+                                let summaries = Dictionary<int, ProgressSummary>()
+                                lock(lck) (fun _ -> monitored.ToArray() ) |> Array.iter (fun (x : Progress) -> summaries.Add(x.Id, x.Summary()))
+                                let mutable last = DateTime.Now
+                                let mutable running = true
+                                while printerActive.Value > 0 && running do 
+                                    do! Async.Sleep (int snapShotInterval.TotalMilliseconds)
+                                    let clean = (DateTime.Now - last).Ticks > cleanInterval.Ticks 
+                                    last <- DateTime.Now
+                                    let m = lock(lck) (fun _ -> monitored.ToArray())
+                                    for x in m do 
+                                        match summaries.TryGetValue(x.Id) with 
+                                        | true, s -> 
+                                            //printfn "%A" (DateTime.Now - s.TimeStamp, printInterval)
+                                            if s.TotalSteps > 0L && s.CurrentStep = s.TotalSteps then 
+                                                if clean then 
+                                                    unwatch x
+                                            elif (DateTime.Now - s.TimeStamp).Ticks > printInterval.Ticks then 
+                                                let s = x.Summary()
+                                                summaries.[x.Id] <- s
+                                                if printerActive.Value > 0 then 
+                                                    print s
+                                            elif s.TotalSteps = 0L || printRatioInterval = 0.0 || (DateTime.Now - s.TimeStamp).Ticks < minPrintInterval.Ticks then 
+                                                x.Snapshot()
+                                            else
+                                                let s2 = x.Summary()
+                                                if (decimal (s2.CurrentStep - s.CurrentStep) / decimal s2.TotalSteps) >= decimal printRatioInterval then 
+                                                    summaries.[x.Id] <- s2
+                                                    if printerActive.Value > 0 then 
+                                                        print s2
+                                                if s2.CurrentStep = s.CurrentStep && clean then 
+                                                    x.RefreshReferences()
+                                                    if x.ReferenceCount = 0 then 
+                                                        unwatch x
+                                        | _ -> 
                                             let s = x.Summary()
                                             summaries.[x.Id] <- s
-                                            if printerActive > 0 then 
-                                                print s
-                                        elif s.TotalSteps = 0L || printRatioInterval = 0.0 || (DateTime.Now - s.TimeStamp).Ticks < minPrintInterval.Ticks then 
-                                            x.Snapshot()
-                                        else
-                                            let s2 = x.Summary()
-                                            if (decimal (s2.CurrentStep - s.CurrentStep) / decimal s2.TotalSteps) >= decimal printRatioInterval then 
-                                                summaries.[x.Id] <- s2
-                                                if printerActive > 0 then 
-                                                    print s2
-                                            if s2.CurrentStep = s.CurrentStep && clean then 
-                                                x.RefreshReferences()
-                                                if x.ReferenceCount = 0 then 
-                                                    unwatch x
-                                    | _ -> 
-                                        let s = x.Summary()
-                                        summaries.[x.Id] <- s
-                                if clean then 
-                                    lock(lck) (fun _ -> 
-                                        if monitored.Count = 0 then
-                                            running <- false
-                                            printerTask <- None)
+                                    if clean then 
+                                        lock(lck) (fun _ -> 
+                                            if monitored.Count = 0 then
+                                                running <- false
+                                                printerTask <- None)
+                            with 
+                            | e -> 
+                                lock(lck) (fun _ -> 
+                                    printfn "Progress Task failure: %s\r\n%A" e.Message e.StackTrace
+                                    printerTask <- None
+                                )
                         }
                     printerTask <- task |> Async.StartAsTask |> Some
                 | Some _ -> ()
@@ -289,7 +297,7 @@ module Progress =
         try 
             f pr
         finally
-            Threading.Interlocked.Decrement &printerActive |> ignore
+            Threading.Interlocked.Decrement printerActive |> ignore
             print (p.Summary())
     let inline trackTotal total f = 
         let p = Progress()
@@ -299,7 +307,7 @@ module Progress =
         try 
             f pr
         finally
-            Threading.Interlocked.Decrement &printerActive |> ignore
+            Threading.Interlocked.Decrement printerActive |> ignore
             print (p.Summary())
 module Array = 
     let inline mapWithProgress f a = 
@@ -316,7 +324,7 @@ module Array =
                     r
                 )
         finally 
-            Threading.Interlocked.Decrement &Progress.printerActive |> ignore
+            Threading.Interlocked.Decrement Progress.printerActive |> ignore
             Progress.print (p.Summary())
             
     let inline iterWithProgress f a = 
@@ -332,6 +340,6 @@ module Array =
                     Progress.step pr
                 )
         finally 
-            Threading.Interlocked.Decrement &Progress.printerActive |> ignore
+            Threading.Interlocked.Decrement Progress.printerActive |> ignore
             Progress.print (p.Summary())
 
